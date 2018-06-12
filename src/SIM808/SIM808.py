@@ -41,12 +41,60 @@ Clean_Session_Mask  = 2
 class MQTT:
     
     Modem = None
+    Connected = False
+    _ProtocolVersion = 3
+    _KeepAliveTimeOut = 360
     
     def __init__(self,Modem):
         self.Modem = Modem
         
 
-    
+    #https://public.dhe.ibm.com/software/dw/webservices/ws-mqtt/mqtt-v3r1.html#connect
+    def connect(self,ClientIdentifier, UserNameFlag, PasswordFlag, UserName, Password, CleanSession, WillFlag, WillQoS, WillRetain, WillTopic, WillMessage):
+        
+        Fixed_Head = chr(CONNECT * 16)
+        
+        #Variable header
+        ProtocolName = "MQIsdp"  
+              
+        localLength = 2 + len(ProtocolName) + 4  + 2 + len(ClientIdentifier);
+        if (WillFlag != 0):
+            localLength = localLength + 2 + len(WillTopic) + 2 + len(WillMessage);
+
+        if (UserNameFlag != 0):
+            localLength = localLength + 2 + len(UserName);
+        
+            if (PasswordFlag != 0):
+                localLength = localLength + 2 + len(Password);
+
+        
+        msg = Fixed_Head
+        msg = msg + self._Encode_Length(localLength)
+        msg = msg + self._Encode_UTFString(ProtocolName)
+        msg = msg + chr(self._ProtocolVersion)
+        msg = msg + chr(UserNameFlag * User_Name_Flag_Mask + PasswordFlag * Password_Flag_Mask + WillRetain * Will_Retain_Mask + WillQoS * Will_QoS_Scale + WillFlag * Will_Flag_Mask + CleanSession * Clean_Session_Mask)
+        msg = msg + chr(self._KeepAliveTimeOut/256)
+        msg = msg + chr(self._KeepAliveTimeOut % 256)
+        msg = msg + self._Encode_UTFString(ClientIdentifier)
+        
+        if (WillFlag != 0):
+            msg = msg + WillTopic
+            msg = msg + WillMessage
+        
+        if (UserNameFlag != 0):
+            msg = msg + UserName
+
+            if (PasswordFlag != 0):
+                msg = msg + Password
+ 
+        rs_msg = self.Modem.Send_TCP(msg,len(msg))
+        
+        if rs_msg[0] == chr(CONNACK*16) and rs_msg[2] == chr(0):
+            self.Connected = True
+        else:
+            self.Connected = False                
+        
+        
     def publish(self,DUP, Qos, RETAIN, MessageID, Topic, Message):
 
         #=========================================================================
@@ -71,8 +119,24 @@ class MQTT:
         
         Fixed_Head = chr(PUBLISH * 16 + DUP * DUP_Mask + Qos * QoS_Scale + RETAIN)
         
+    def _Encode_Length(self , _len):
+        length_flag = False;
+        msg =''
+        while (length_flag == False):
+            if ((_len / 128) > 0):
+                msg = msg + chr(_len % 128 + 128);
+                _len = _len / 128;
+            else:
+                length_flag = True;
+                msg = msg + chr(_len);
+        return msg
 
-
+    def _Encode_UTFString(self , string):
+        localLength = len(string);
+        msg = chr(localLength / 256);
+        msg = msg + chr(localLength % 256);
+        return  msg + string;
+    
 class TCP_IP:    
     
     Serial = None
@@ -110,6 +174,7 @@ class TCP_IP:
         ReplyFlag = True
         
         self.Serial.write(command)
+        sleep(waitms)
         for item in replystr:
             in_msg = self.Serial.readline()
             ReplyFlag = ReplyFlag and ((in_msg== item) or (item=='*'))  
@@ -174,8 +239,13 @@ class TCP_IP:
     def Close_All(self):
         
         #Deactivate the PDP context and close all connections
-        replystr=('AT+CIPSHUT\r\r\n','SHUT OK\r\n') 
-        assert self.sendATreply('AT+CIPSHUT\r\n',replystr,0)
+        sleep(0.5)
+        self.Serial.flushInput()
+        replystr=('AT+CIPSHUT\r\r\n','SHUT OK\r\n')
+        try:
+            assert self.sendATreply('AT+CIPSHUT\r\n',replystr,0)
+        except:
+            print('Diconnection Fail')
         
         self.Connected = False 
         
@@ -205,4 +275,38 @@ class TCP_IP:
             connetion_flag = False
                 
         return connetion_flag
+    
+    def Send_TCP(self,msg,length):
         
+        
+        replystr=('\r\n','*','\r\n','CONNECT OK\r\n','*') 
+        assert self.sendATreply('AT+CIPSEND='+ str(length)+'\r\n',replystr,1)
+
+        connetion_try = 5        
+        while(connetion_try>0):
+            in_msg = self.Serial.readline()
+            if (in_msg == '> '):
+                break
+            else:
+                connetion_try = connetion_try - 1
+                sleep(0.1)
+        
+        if (connetion_try <>0):
+            self.Serial.write(msg)
+        else:
+            return False
+            
+   
+        rs_msg = 'ERROR'
+        in_msg = self.Serial.readline()        
+        while (in_msg <> 'CLOSED\r\n'):
+            in_msg = self.Serial.readline()
+            if (in_msg == 'SEND OK\r\n'):
+                rs_msg = self.Serial.readline()
+
+        
+        return rs_msg
+
+            
+        
+    

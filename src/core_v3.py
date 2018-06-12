@@ -11,7 +11,7 @@ import serial
 Serial_Port='/dev/ttyS0'
 Serial = serial.Serial(port=Serial_Port, baudrate=9600, bytesize=serial.EIGHTBITS, 
                parity=serial.PARITY_NONE, 
-               stopbits=serial.STOPBITS_ONE, timeout=5, 
+               stopbits=serial.STOPBITS_ONE, timeout=10, 
                xonxoff=False, rtscts=False, 
                writeTimeout=None, dsrdtr=True, 
                interCharTimeout=None)
@@ -31,6 +31,9 @@ if __name__ == "__main__":
         
         #MQTT host and port
         Modem.Service_Connect('179.190.169.78','1883')
+        
+        MQTT.connect("qwertyuiopzzbr", 0, 0, "", "", 1, 0, 0, 0, "", "")
+        
         msg_ID=1
         MQTT.publish(0, 0, 0, msg_ID, "Teste", "Hello");
         
@@ -40,9 +43,8 @@ if __name__ == "__main__":
         
     except KeyboardInterrupt:
         print "Program finished\n"
-        #Modem.Close_All()
+        Modem.Close_All()
     
     except:
-        pass
-        #Modem.Close_All()
+        Modem.Close_All()
         
